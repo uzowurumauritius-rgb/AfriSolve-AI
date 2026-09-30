@@ -25,8 +25,8 @@ export async function createApp(options={}) {
  if(production&&(demoMode||!secret||secret.length<32))throw new Error('Production requires demo mode disabled and SESSION_SECRET of at least 32 characters');
  const now=options.now??Date.now;
  const store=await openStore(options.dataDir??resolve('data/postgres'),demoMode,now());
- const app=express();app.disable('x-powered-by');app.use(helmet({contentSecurityPolicy:{directives:{'upgrade-insecure-requests':production?[]:null}}}));
- app.use((req,res,next)=>{res.set('Cache-Control','no-store');if(!['GET','HEAD','OPTIONS'].includes(req.method)){const origin=req.get('origin');if(origin&&origin!==`${req.protocol}://${req.get('host')}`)return res.status(403).json({error:'Cross-origin request rejected'});if(!req.is('application/json'))return res.status(415).json({error:'JSON content type required'});}next();});
+ const app=express();app.set('trust proxy',1);app.disable('x-powered-by');app.use(helmet({contentSecurityPolicy:{directives:{'upgrade-insecure-requests':production?[]:null}}}));
+ app.use((req,res,next)=>{res.set('Cache-Control','no-store');if(!['GET','HEAD','OPTIONS'].includes(req.method)){const origin=req.get('origin');if(origin){const host=req.get('host');if(origin!==`${req.protocol}://${host}`&&origin!==`https://${host}`&&origin!==`http://${host}`)return res.status(403).json({error:'Cross-origin request rejected'});}if(!req.is('application/json'))return res.status(415).json({error:'JSON content type required'});}next();});
  app.use(express.json({limit:'3mb',strict:true}));
  const limiter=rateLimit({windowMs:15*60*1000,limit:options.authRateLimit??100,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Too many attempts. Try again later.'}});
  app.use('/api/auth',limiter);app.use('/api/demo/login',limiter);
