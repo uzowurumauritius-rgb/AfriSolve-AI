@@ -41,10 +41,6 @@ RUN mkdir -p /app/data/postgres && chmod 700 /app/data
 # Declare persistent volume for embedded PostgreSQL database
 VOLUME ["/app/data"]
 
-EXPOSE 5173
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 5173) + '/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+ENV NODE_OPTIONS="--max-old-space-size=384"
 
 CMD ["node", "server/index.js"]
