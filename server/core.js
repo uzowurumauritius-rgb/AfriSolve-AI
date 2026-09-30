@@ -21,5 +21,101 @@ export function avatar(v){
 export function publicUser(u){if(!u)return null;const {id,name,email,role,country,institution,bio,expertise,avatar,verified,active}=u;return {id,name,email,role,country,institution,bio,expertise,avatar,verified,active};}
 export async function passwordHash(p){text(p,'Password',128,10);if(!/[A-Za-z]/.test(p)||!/[0-9]/.test(p))fail(400,'Password needs letters and numbers');const salt=randomBytes(16).toString('hex');return salt+':'+(await scrypt(p,salt,64)).toString('hex');}
 export async function passwordMatches(p,stored){if(typeof p!=='string'||p.length>128||!stored)return false;const [salt,key]=stored.split(':');return timingSafeEqual(await scrypt(p,salt,64),Buffer.from(key,'hex'));}
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 export function initialState(demo,now){const s={users:[],sessions:[],tokens:[],mail:[],problems:[],votes:[],comments:[],flags:[],research:[],projects:[],invitations:[],mentorships:[],notifications:[],audit:[],settings:{backupEnabled:true,backupHour:2},lastBackupDay:null};if(demo)for(const [role,name,country] of [['admin','Amara Okafor','Nigeria'],['researcher','Nia Kamau','Kenya'],['student','Kwame Mensah','Ghana'],['innovator','Lerato Molefe','South Africa'],['mentor','Dr. Amina Diallo','Senegal']])s.users.push({id:id(),name,email:`${role}@afrisolve.demo`,role,country,institution:'Fictional African Innovation Lab',bio:'Fictional demonstration persona.',expertise:role==='mentor'?'Sustainable agriculture, research methods':'',avatar:'',verified:true,active:true,demo:true,passwordHash:null,createdAt:new Date(now).toISOString()});return s;}
-export async function openStore(dataDir,demo,now){const db=new PGlite(dataDir==='memory://'?undefined:dataDir);await db.exec('CREATE TABLE IF NOT EXISTS application_state (id INTEGER PRIMARY KEY CHECK(id=1), body JSONB NOT NULL); CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, body JSONB NOT NULL)');const result=await db.query('SELECT body FROM application_state WHERE id=1');let state=result.rows[0]?.body??initialState(demo,now);if(!result.rows.length)await db.query('INSERT INTO application_state VALUES (1,$1)',[JSON.stringify(state)]);let queue=Promise.resolve();return {db,get state(){return state;},set state(s){state=s;},exclusive(fn){const p=queue.then(fn);queue=p.catch(()=>{});return p;},async save(){await db.query('UPDATE application_state SET body=$1 WHERE id=1',[JSON.stringify(state)]);},async close(){await queue;await db.close();}};}
+
+function createLightweightStore(dataDir, demo, now) {
+  const isMemory = !dataDir || dataDir === 'memory://';
+  const file = isMemory ? null : resolve(dataDir, 'database.json');
+  if (file && !existsSync(dataDir)) { try { mkdirSync(dataDir, { recursive: true }); } catch {} }
+  let data = { state: null, backups: [] };
+  if (file && existsSync(file)) {
+    try { data = JSON.parse(readFileSync(file, 'utf8')); } catch {}
+  }
+  let state = data.state ?? initialState(demo, now);
+  let backups = data.backups ?? [];
+  const persist = () => {
+    if (file) {
+      try {
+        const tmp = file + '.tmp';
+        writeFileSync(tmp, JSON.stringify({ state, backups }));
+        renameSync(tmp, file);
+      } catch {}
+    }
+  };
+  const db = {
+    async exec() {},
+    async transaction(fn) { return fn(db); },
+    async query(sql, params = []) {
+      if (sql.includes('SELECT body FROM application_state')) {
+        return { rows: [{ body: state }] };
+      }
+      if (sql.includes('UPDATE application_state') || sql.includes('INSERT INTO application_state')) {
+        state = JSON.parse(params[0]);
+        persist();
+        return { rows: [] };
+      }
+      if (sql.includes('INSERT INTO backups')) {
+        const [id, created_at, bodyStr] = params;
+        backups.unshift({ id, created_at, body: JSON.parse(bodyStr) });
+        persist();
+        return { rows: [] };
+      }
+      if (sql.includes('DELETE FROM backups')) {
+        const limit = params[0] ?? 10;
+        backups = backups.slice(0, limit);
+        persist();
+        return { rows: [] };
+      }
+      if (sql.includes('SELECT id,created_at AS "createdAt" FROM backups')) {
+        return { rows: backups.map(b => ({ id: b.id, createdAt: b.created_at })) };
+      }
+      if (sql.includes('SELECT body FROM backups WHERE id=$1')) {
+        const b = backups.find(x => x.id === params[0]);
+        return { rows: b ? [{ body: b.body }] : [] };
+      }
+      return { rows: [] };
+    },
+    async close() {}
+  };
+  let queue = Promise.resolve();
+  persist();
+  return {
+    db,
+    get state() { return state; },
+    set state(s) { state = s; },
+    exclusive(fn) {
+      const p = queue.then(fn);
+      queue = p.catch(() => {});
+      return p;
+    },
+    async save() { persist(); },
+    async close() { await queue; }
+  };
+}
+
+export async function openStore(dataDir, demo, now) {
+  if (process.env.STORAGE_ENGINE === 'lightweight' || (process.env.NODE_ENV === 'production' && process.env.STORAGE_ENGINE !== 'pglite')) {
+    return createLightweightStore(dataDir, demo, now);
+  }
+  try {
+    const db = new PGlite(dataDir === 'memory://' ? undefined : dataDir);
+    await db.exec('CREATE TABLE IF NOT EXISTS application_state (id INTEGER PRIMARY KEY CHECK(id=1), body JSONB NOT NULL); CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, body JSONB NOT NULL)');
+    const result = await db.query('SELECT body FROM application_state WHERE id=1');
+    let state = result.rows[0]?.body ?? initialState(demo, now);
+    if (!result.rows.length) await db.query('INSERT INTO application_state VALUES (1,$1)', [JSON.stringify(state)]);
+    let queue = Promise.resolve();
+    return {
+      db,
+      get state() { return state; },
+      set state(s) { state = s; },
+      exclusive(fn) { const p = queue.then(fn); queue = p.catch(() => {}); return p; },
+      async save() { await db.query('UPDATE application_state SET body=$1 WHERE id=1', [JSON.stringify(state)]); },
+      async close() { await queue; await db.close(); }
+    };
+  } catch (err) {
+    return createLightweightStore(dataDir, demo, now);
+  }
+}
