@@ -7,6 +7,7 @@ import { installResearch } from './research.js';
 import { installAdmin } from './admin.js';
 import { installReports } from './reports.js';
 import { installNotifications } from './notifications.js';
+import { seedDemoData } from './seed-data.js';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { resolve } from 'node:path';
@@ -57,6 +58,7 @@ export async function createApp(options={}) {
   const hash=await passwordHash(autoAdminPass);
   store.state.users.push({id:id(),name:process.env.ADMIN_NAME||'Platform Administrator',email:autoAdminEmail,passwordHash:hash,role:'admin',country:process.env.ADMIN_COUNTRY||'Nigeria',institution:'AfriSolve Administration',bio:'Platform administrator account for grading.',expertise:'Platform governance, moderation, verification',avatar:'',verified:true,active:true,demo:false,createdAt:stamp()});
  }
+ await seedDemoData(store, stamp);
  await store.save();
  app.use((err,req,res,next)=>{if(res.headersSent)return next(err);res.status(err.status??500).json({error:err.status?err.message:'An internal error occurred'});});
  return {app,store,runBackupSchedule:ctx.runBackupSchedule,runReminderSchedule:ctx.runReminderSchedule,flushNotifications:ctx.flushNotifications,async close(){ctx.stopSchedule?.();ctx.stopNotifications?.();await store.close();}};
