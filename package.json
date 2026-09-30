@@ -1,0 +1,39 @@
+{
+  "name": "afrisolve-ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "African-centered problem intelligence academic prototype",
+  "author": "Chibuzor Moses Uzowuru",
+  "engines": {"node": ">=22.12.0"},
+  "scripts": {
+    "dev": "node server/index.js",
+    "start": "node server/index.js",
+    "build": "vite build",
+    "test": "node --test --test-concurrency=1 tests/api.test.js tests/backend-*.test.js",
+    "test:ui": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm test && npm run test:ui && npm run build"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "latest",
+    "express": "^5.1.0",
+    "express-rate-limit": "latest",
+    "helmet": "latest",
+    "nodemailer": "latest",
+    "pdfkit": "latest",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "lucide-react": "latest"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@testing-library/react": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "jsdom": "latest",
+    "supertest": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  }
+}
