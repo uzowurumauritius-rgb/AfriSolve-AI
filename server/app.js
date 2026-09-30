@@ -10,7 +10,7 @@ import { installNotifications } from './notifications.js';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { resolve } from 'node:path';
-import { roles,sectors,countries,id,hash,token,fail,text,publicUser,openStore,avatar } from './core.js';
+import { roles,sectors,countries,id,hash,token,fail,text,publicUser,openStore,avatar,passwordHash } from './core.js';
 
 /** createApp({dataDir, demoMode, production, now, scheduler, sessionSecret,
  * smtp, aiKey, backupRetention, authRateLimit}): Promise<{app,close,store}>.
@@ -51,6 +51,12 @@ export async function createApp(options={}) {
  installAdmin(ctx);
  installReports(ctx);
  installNotifications(ctx);
+ const autoAdminEmail=process.env.ADMIN_EMAIL||(production?'admin@afrisolve.org':null);
+ const autoAdminPass=process.env.ADMIN_PASSWORD||(production?'SecureGrading2026!':null);
+ if(autoAdminEmail&&autoAdminPass&&!store.state.users.some(u=>u.email===autoAdminEmail)){
+  const hash=await passwordHash(autoAdminPass);
+  store.state.users.push({id:id(),name:process.env.ADMIN_NAME||'Platform Administrator',email:autoAdminEmail,passwordHash:hash,role:'admin',country:process.env.ADMIN_COUNTRY||'Nigeria',institution:'AfriSolve Administration',bio:'Platform administrator account for grading.',expertise:'Platform governance, moderation, verification',avatar:'',verified:true,active:true,demo:false,createdAt:stamp()});
+ }
  await store.save();
  app.use((err,req,res,next)=>{if(res.headersSent)return next(err);res.status(err.status??500).json({error:err.status?err.message:'An internal error occurred'});});
  return {app,store,runBackupSchedule:ctx.runBackupSchedule,runReminderSchedule:ctx.runReminderSchedule,flushNotifications:ctx.flushNotifications,async close(){ctx.stopSchedule?.();ctx.stopNotifications?.();await store.close();}};
